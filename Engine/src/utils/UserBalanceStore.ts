@@ -34,7 +34,7 @@ export class User {
       account = { userId, usd_balance: this.DEFAULT_BALANCE };
     }
 
-    const newBalance = account.usd_balance + delta;
+    const newBalance = delta;
 
     // optional: prevent negative balances
     if (newBalance < 0) {

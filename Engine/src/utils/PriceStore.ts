@@ -22,8 +22,8 @@ export class PriceStoreManager{
         //iterating through array
         assets.forEach((asset)=>{
             //applying spreading of 1 percent
-            const askPrice=asset.price*(1+0.01)
-            const sellPrice=asset.price*(1-0.01)
+            const askPrice=(asset.price*(1+0.01))/asset.decimals
+            const sellPrice=asset.price*(1-0.01)/asset.decimals
             this.Prices.set(asset.asset,{symbol:asset.asset,askPrice,sellPrice,decimal:asset.decimals})
         })
     }
