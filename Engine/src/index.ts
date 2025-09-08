@@ -3,11 +3,12 @@ import { PriceStoreManager } from "./utils/PriceStore";
 import { TradeStoreManager } from "./utils/TradeStore";
 import { User } from "./utils/UserBalanceStore";
 import { Calc, calculatePnl } from "./utils/CalculateMargin";
+import { lastProcessedId } from "./utils/ProcessedID";
+import { insertAsset } from "./services/createAsset";
 
 const EngineClient = createClient();
-let lastProcessedId = "0-0";
+let lastProcessedid = lastProcessedId.getInstance().getLastProcessedId();
 
-// --- Utility: parse message safely ---
 function parseMessage(msg: any) {
   try {
     return JSON.parse(msg.message.data);
@@ -24,7 +25,7 @@ function handlePriceUpdate(data: any) {
 }
 
 // --- Handler: open order ---
-function handleOpenOrder(data: any, id: string) {
+ function handleOpenOrder(data: any, id: string) {
   const { symbol, tradeId, type, quantity, userId, leverage } = data.payload;
   const currentPrice = PriceStoreManager.getInstance().get(symbol);
   if (!currentPrice) {
@@ -49,12 +50,14 @@ function handleOpenOrder(data: any, id: string) {
     type,
     quantity,
     openPrice,
-    "open",
     leverage,
     userId
   );
 
   User.getInstance().updateBalance(userId, balance - margin);
+  if(!PriceStoreManager.getInstance().getAssetId(symbol)){
+       insertAsset(symbol).catch(err=>console.log(err))
+  }
 }
 
 // --- Handler: close order ---
@@ -109,7 +112,7 @@ async function StartEngine() {
 
     while (true) {
       const streamData = await EngineClient.xRead(
-        { key: "trades", id: lastProcessedId },
+        { key: "trades", id: lastProcessedid },
         { BLOCK: 0, COUNT: 10 }
       );
 
@@ -117,15 +120,19 @@ async function StartEngine() {
 
       for (const stream of streamData) {
         for (const message of stream.messages) {
+          console.log(message)
           const id = message.id;
           const data = parseMessage(message);
           if (!data) {
-            lastProcessedId = id;
+            lastProcessedid = id;
+            lastProcessedId.getInstance().setLastProcessedId(lastProcessedid)
             continue;
           }
 
           handleMessage(data, id);
-          lastProcessedId = id; // advance pointer
+          lastProcessedid = id; // advance pointer
+          lastProcessedId.getInstance().setLastProcessedId(lastProcessedid)
+          console.log('done')
         }
       }
     }

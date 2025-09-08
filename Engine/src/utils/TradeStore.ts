@@ -1,80 +1,132 @@
-type Trade = {
+import { lastProcessedId } from "./ProcessedID";
+
+export type Trade = {
   tradeId: string;
-  type: string; // buy/sell
+  type: "buy" | "sell";
   quantity: number;
   openPrice: number;
-  status: string; // open/closed
+  status: "open" | "closed";
   leverage: number;
   userId: number;
-  closedPrice?:number
+  closedPrice?: number;
+  streamId?: string;
+  symbol: string;
+  pnl?: number;
+  margin?: number;
+  liquidated?: boolean;
 };
 
 export class TradeStoreManager {
-  private static trade_instance: TradeStoreManager;
-  private OpenTrades = new Map<string, Trade[]>();
-  private OpenIndex = new Map<string, Set<string>>();
-  private CloseTrades = new Map<string, Trade[]>();
+  private static instance: TradeStoreManager;
+  private openTrades = new Map<string, Trade[]>();
+  private openIndex = new Map<string, Set<string>>();
+  private closedTrades = new Map<string, Trade[]>();
 
   private constructor() {}
 
-  public static getInstance() {
-    if (!TradeStoreManager.trade_instance) {
-      TradeStoreManager.trade_instance = new TradeStoreManager();
+  public static getInstance(): TradeStoreManager {
+    if (!TradeStoreManager.instance) {
+      TradeStoreManager.instance = new TradeStoreManager();
     }
-    return TradeStoreManager.trade_instance;
+    return TradeStoreManager.instance;
   }
 
   public addOpenTrade(
     symbol: string,
     tradeId: string,
-    type: string,
+    type: "buy" | "sell",
     quantity: number,
     openPrice: number,
-    status: string,
     leverage: number,
     userId: number
-  ) {
-    const idx = this.OpenIndex.get(symbol) || new Set<string>();
-    if (idx.has(tradeId)) {
-      return false;
-    }
-    const trades = this.OpenTrades.get(symbol) || [];
-    trades.push({
+  ): boolean {
+    const idx = this.openIndex.get(symbol) || new Set<string>();
+    if (idx.has(tradeId)) return false;
+
+    const trades = this.openTrades.get(symbol) || [];
+    const trade: Trade = {
       tradeId,
       type,
       quantity,
       openPrice,
-      status,
+      status: "open",
       leverage,
       userId,
-    });
-    this.OpenTrades.set(symbol, trades);
+      symbol,
+    };
+
+    trades.push(trade);
+    this.openTrades.set(symbol, trades);
+
     idx.add(tradeId);
-    this.OpenIndex.set(symbol, idx);
+    this.openIndex.set(symbol, idx);
+
+    return true;
   }
 
-  public closeTrade(symbol: string, tradeId: string,closePrice:number) {
-    const trades = this.OpenTrades.get(symbol) || [];
+  public closeTrade(
+    symbol: string,
+    tradeId: string,
+    closedPrice: number,
+    liquidated: boolean = false
+  ): boolean {
+    const trades = this.openTrades.get(symbol) || [];
     if (trades.length === 0) return false;
 
-    // Find index of the trade
     const index = trades.findIndex((t) => t.tradeId === tradeId);
-    if (index === -1) return false; // trade not found
+    if (index === -1) return false;
 
-    const [closedTrade] = trades.splice(index, 1);
-    this.OpenTrades.set(symbol, trades);
-    closedTrade.status = "closed";
-    closedTrade.closedPrice=closePrice
-    const existingCloseTrades = this.CloseTrades.get(symbol) || [];
-    existingCloseTrades.push(closedTrade);
-    this.CloseTrades.set(symbol, existingCloseTrades);
-    return true
+    const [trade] = trades.splice(index, 1);
+    // update open store
+    this.openTrades.set(symbol, trades);
+
+    // mark closed
+    trade.status = "closed";
+    trade.closedPrice = closedPrice;
+    trade.streamId = lastProcessedId.getInstance().getLastProcessedId();
+    trade.symbol = symbol;
+    trade.liquidated = liquidated;
+
+    // compute pnl & margin
+    const notional = trade.quantity * trade.openPrice;
+    const margin = notional / trade.leverage;
+    const pnl =
+      trade.type === "buy"
+        ? (closedPrice - trade.openPrice) * trade.quantity * trade.leverage
+        : (trade.openPrice - closedPrice) * trade.quantity * trade.leverage;
+
+    trade.pnl = pnl;
+    trade.margin = margin;
+
+    // push to closed store
+    const closed = this.closedTrades.get(symbol) || [];
+    closed.push(trade);
+    this.closedTrades.set(symbol, closed);
+
+    // update index
+    const idx = this.openIndex.get(symbol);
+    if (idx) {
+      idx.delete(tradeId);
+      if (idx.size === 0) this.openIndex.delete(symbol);
+      else this.openIndex.set(symbol, idx);
+    }
+
+    return true;
   }
 
   public getOpenTrades(symbol: string): Trade[] {
-    return this.OpenTrades.get(symbol) || [];
+    return this.openTrades.get(symbol) || [];
   }
-  public GetCloseTrades(symbol:string) {
-    return this.CloseTrades.get(symbol);
+
+  public getClosedTrades(symbol: string): Trade[] {
+    return this.closedTrades.get(symbol) || [];
+  }
+
+  public getAllOpenTrades(): [string, Trade[]][] {
+    return [...this.openTrades.entries()];
+  }
+
+  public getAllClosedTrades(): [string, Trade[]][] {
+    return [...this.closedTrades.entries()];
   }
 }

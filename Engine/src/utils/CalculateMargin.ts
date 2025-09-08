@@ -19,7 +19,7 @@ export const calculatePnl = (
   symbol: string
 ) => {
 
-  const closedTrades = TradeStoreManager.getInstance().GetCloseTrades(symbol);
+  const closedTrades = TradeStoreManager.getInstance().getClosedTrades(symbol);
   const trade = closedTrades?.find(
     (t) => t.tradeId === tradeId && t.userId === userId
   );
